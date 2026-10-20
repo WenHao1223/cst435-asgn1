@@ -161,6 +161,71 @@ def plot_speedup_bars(output_dir, averages, title, filename, series):
     return save_figure(figure, output_dir, filename)
 
 
+def plot_openmp_scaling(output_dir, scaling_averages):
+    """Plot OpenMP speedup and parallel efficiency against thread count."""
+    sizes = sorted({int(row["Matrix_Size"]) for row in scaling_averages})
+    thread_counts = sorted({int(row["Threads"]) for row in scaling_averages})
+    colors = [
+        plt.cm.viridis(0.15 + 0.7 * index / max(1, len(sizes) - 1))
+        for index in range(len(sizes))
+    ]
+
+    figure, (speedup_ax, efficiency_ax) = plt.subplots(1, 2, figsize=(13, 5.5))
+
+    for index, size in enumerate(sizes):
+        rows = sorted(
+            (row for row in scaling_averages if int(row["Matrix_Size"]) == size),
+            key=lambda row: int(row["Threads"]),
+        )
+        threads = [int(row["Threads"]) for row in rows]
+        color = colors[index]
+        label = f"{size}x{size}"
+
+        speedup_ax.plot(
+            threads,
+            [float(row["Speedup_CPU_vs_Seq"]) for row in rows],
+            marker="o",
+            linewidth=2,
+            color=color,
+            label=label,
+        )
+        efficiency_ax.plot(
+            threads,
+            [float(row["Parallel_Efficiency"]) for row in rows],
+            marker="o",
+            linewidth=2,
+            color=color,
+            label=label,
+        )
+
+    speedup_ax.plot(
+        thread_counts,
+        thread_counts,
+        linestyle=":",
+        color="black",
+        label="Ideal speedup",
+    )
+
+    panels = [
+        (speedup_ax, "Speedup vs. Threads", "Speedup (x)"),
+        (efficiency_ax, "Parallel Efficiency vs. Threads", "Parallel efficiency"),
+    ]
+    for ax, title, ylabel in panels:
+        ax.set_xscale("log", base=2)
+        ax.set_xticks(thread_counts)
+        ax.set_xticklabels([str(threads) for threads in thread_counts])
+        ax.xaxis.set_minor_formatter(ticker.NullFormatter())
+        ax.set_xlabel("OpenMP threads")
+        ax.set_ylabel(ylabel)
+        ax.set_title(title)
+        ax.grid(True, which="major", linestyle="--", alpha=0.4)
+        ax.set_ylim(bottom=0)
+
+    speedup_ax.legend()
+    figure.suptitle("OpenMP Strong Scaling")
+    return save_figure(figure, output_dir, "openmp_strong_scaling.png")
+
+
 def main():
     """Main function to read CSV files and generate plots."""
     results_dir = sys.argv[1] if len(sys.argv) > 1 else "results"
@@ -172,6 +237,9 @@ def main():
     readings_path = os.path.join(results_dir, "all_readings.csv")
     readings = read_csv(readings_path) if os.path.isfile(readings_path) else []
     averages = read_csv(averages_path)
+
+    scaling_path = os.path.join(results_dir, "openmp_scaling_averages.csv")
+    scaling_averages = read_csv(scaling_path) if os.path.isfile(scaling_path) else []
 
     paths = [
         plot_execution_time(results_dir, averages, readings),
@@ -190,6 +258,9 @@ def main():
             GPU_VS_CPU_SERIES,
         ),
     ]
+
+    if scaling_averages:
+        paths.append(plot_openmp_scaling(results_dir, scaling_averages))
 
     for path in paths:
         print(f"graph written to {path}")
