@@ -93,6 +93,8 @@ const int READINGS_PER_SIZE = 3;
 const std::string OUTPUT_DIR = "results";
 const std::string ALL_READINGS_CSV = OUTPUT_DIR + "/all_readings.csv";
 const std::string AVERAGES_CSV = OUTPUT_DIR + "/averages.csv";
+const std::string PLOT_SCRIPT = "plot_benchmark.py";
+const std::string PYTHON_COMMAND = "python";
 
 struct Reading
 {
@@ -187,14 +189,54 @@ void writeAveragesCsv(const std::vector<AverageReading> &averages)
     }
 }
 
+bool runPlotScript(const char *executable)
+{
+    std::vector<std::string> candidates = {PLOT_SCRIPT};
+
+    std::filesystem::path executable_path(executable != nullptr ? executable : "");
+    if (executable_path.has_parent_path())
+    {
+        candidates.push_back((executable_path.parent_path() / PLOT_SCRIPT).string());
+    }
+
+    for (const std::string &script : candidates)
+    {
+        if (!std::filesystem::exists(script))
+        {
+            continue;
+        }
+
+        std::string command = PYTHON_COMMAND + " \"" + script + "\" \"" + OUTPUT_DIR + "\"";
+        if (std::system(command.c_str()) != 0)
+        {
+            std::cerr << "Warning: graph export failed "
+                      << "(is Python with matplotlib installed?)." << std::endl;
+            return false;
+        }
+        std::cout << "Graphs written to " << OUTPUT_DIR << std::endl;
+        return true;
+    }
+
+    std::cerr << "Warning: " << PLOT_SCRIPT << " not found; skipping graph export." << std::endl;
+    return false;
+}
+
 // =================================================================
 // Main Benchmark Runner
 // =================================================================
-int main()
+int main(int argc, char *argv[])
 {
     srand(static_cast<unsigned>(time(0)));
 
-    std::vector<int> matrix_sizes = {128, 256, 512, 1024, 2048, 3072, 4096};
+    std::vector<int> matrix_sizes = {
+        128,
+        256,
+        512,
+        1024,
+        // 2048,
+        // 3072,
+        // 4096
+    };
     std::vector<Reading> readings;
 
     std::filesystem::create_directories(OUTPUT_DIR);
@@ -284,6 +326,9 @@ int main()
 
     std::cout << "\nRaw readings written to " << ALL_READINGS_CSV << std::endl;
     std::cout << "Average readings written to " << AVERAGES_CSV << std::endl;
+
+    runPlotScript(argc > 0 ? argv[0] : nullptr);
+
     std::cout << "Benchmark complete." << std::endl;
 
     return 0;
