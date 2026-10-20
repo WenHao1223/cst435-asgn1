@@ -90,7 +90,7 @@ __global__ void matrixMulGpu(const float *A, const float *B, float *C, int size)
 // =================================================================
 // Benchmark Data & Output Helpers
 // =================================================================
-const int READINGS_PER_SIZE = 3;
+const int READINGS_PER_SIZE = 10;
 const std::string OUTPUT_ROOT = "results";
 const std::string ALL_READINGS_FILENAME = "all_readings.csv";
 const std::string AVERAGES_FILENAME = "averages.csv";
