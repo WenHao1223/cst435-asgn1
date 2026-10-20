@@ -18,9 +18,9 @@ const std::vector<int> MATRIX_SIZES = {
     256,
     512,
     1024,
-    // 2048,
-    // 3072,
-    // 4096,
+    2048,
+    3072,
+    4096,
 };
 const std::string RESULTS_DIR = "results";
 const unsigned SEED = 42;
