@@ -7,6 +7,7 @@
 #include <chrono>
 #include <fstream>
 #include <filesystem>
+#include <algorithm>
 #include <omp.h>
 #include <cuda_runtime.h>
 
@@ -93,6 +94,8 @@ const int READINGS_PER_SIZE = 3;
 const std::string OUTPUT_ROOT = "results";
 const std::string ALL_READINGS_FILENAME = "all_readings.csv";
 const std::string AVERAGES_FILENAME = "averages.csv";
+const std::string SCALING_ALL_READINGS_FILENAME = "openmp_scaling_all_readings.csv";
+const std::string SCALING_AVERAGES_FILENAME = "openmp_scaling_averages.csv";
 const std::string PLOT_SCRIPT = "plot_benchmark.py";
 const std::string PYTHON_COMMAND = "python";
 
@@ -112,6 +115,36 @@ struct AverageReading
     double openmpMs;
     double cudaMs;
 };
+
+struct ScalingReading
+{
+    int matrixSize;
+    int threads;
+    int run; // 1-based repetition index
+    double openmpMs;
+};
+
+struct ScalingAverage
+{
+    int matrixSize;
+    int threads;
+    double sequentialMs;
+    double openmpMs;
+    double speedup;
+    double efficiency;
+};
+
+std::vector<int> openmpThreadCounts()
+{
+    int max_threads = omp_get_max_threads();
+    std::vector<int> thread_counts;
+    for (int threads = 1; threads < max_threads; threads *= 2)
+    {
+        thread_counts.push_back(threads);
+    }
+    thread_counts.push_back(max_threads);
+    return thread_counts;
+}
 
 template <typename Func>
 double timeMs(Func &&fn)
@@ -214,6 +247,90 @@ void writeAveragesCsv(const std::vector<AverageReading> &averages, const std::st
     }
 }
 
+double sequentialMsForSize(const std::vector<AverageReading> &averages, int matrix_size)
+{
+    auto match = std::find_if(averages.begin(), averages.end(),
+                              [matrix_size](const AverageReading &average)
+                              { return average.matrixSize == matrix_size; });
+    return match != averages.end() ? match->sequentialMs : 0.0;
+}
+
+std::vector<ScalingAverage> averageScalingReadings(const std::vector<ScalingReading> &readings,
+                                                   const std::vector<AverageReading> &averages)
+{
+    std::vector<ScalingAverage> scaling_averages;
+    for (size_t i = 0; i + READINGS_PER_SIZE <= readings.size(); i += READINGS_PER_SIZE)
+    {
+        const ScalingReading &first = readings[i];
+        double openmp_ms = 0.0;
+        for (int run = 0; run < READINGS_PER_SIZE; ++run)
+        {
+            openmp_ms += readings[i + run].openmpMs;
+        }
+        openmp_ms /= READINGS_PER_SIZE;
+
+        double sequential_ms = sequentialMsForSize(averages, first.matrixSize);
+        double speedup = sequential_ms / openmp_ms;
+
+        scaling_averages.push_back(
+            {first.matrixSize, first.threads, sequential_ms, openmp_ms,
+             speedup, speedup / first.threads});
+    }
+    return scaling_averages;
+}
+
+void writeScalingReadingsCsv(const std::vector<ScalingReading> &readings,
+                             const std::vector<AverageReading> &averages,
+                             const std::string &output_dir)
+{
+    std::filesystem::path csv_path = std::filesystem::path(output_dir) / SCALING_ALL_READINGS_FILENAME;
+    std::ofstream file(csv_path);
+    if (!file)
+    {
+        std::cerr << "Error: could not open " << csv_path.string() << " for writing." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    file << "Matrix_Size,Threads,Run,Sequential_CPU_ms,Parallel_CPU_ms,"
+         << "Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
+    for (const ScalingReading &reading : readings)
+    {
+        double sequential_ms = sequentialMsForSize(averages, reading.matrixSize);
+        double speedup = sequential_ms / reading.openmpMs;
+
+        file << reading.matrixSize << ","
+             << reading.threads << ","
+             << reading.run << ","
+             << std::fixed << std::setprecision(4) << sequential_ms << ","
+             << reading.openmpMs << ","
+             << std::setprecision(2) << speedup << ","
+             << std::setprecision(4) << speedup / reading.threads << std::endl;
+    }
+}
+
+void writeScalingAveragesCsv(const std::vector<ScalingAverage> &scaling_averages, const std::string &output_dir)
+{
+    std::filesystem::path csv_path = std::filesystem::path(output_dir) / SCALING_AVERAGES_FILENAME;
+    std::ofstream file(csv_path);
+    if (!file)
+    {
+        std::cerr << "Error: could not open " << csv_path.string() << " for writing." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    file << "Matrix_Size,Threads,Sequential_CPU_ms,Parallel_CPU_ms,"
+         << "Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
+    for (const ScalingAverage &average : scaling_averages)
+    {
+        file << average.matrixSize << ","
+             << average.threads << ","
+             << std::fixed << std::setprecision(4) << average.sequentialMs << ","
+             << average.openmpMs << ","
+             << std::setprecision(2) << average.speedup << ","
+             << std::setprecision(4) << average.efficiency << std::endl;
+    }
+}
+
 bool runPlotScript(const char *executable, const std::string &output_dir)
 {
     std::vector<std::string> candidates = {PLOT_SCRIPT};
@@ -263,9 +380,19 @@ int main(int argc, char *argv[])
         // 4096
     };
     std::vector<Reading> readings;
+    std::vector<ScalingReading> scaling_readings;
+
+    std::vector<int> thread_counts = openmpThreadCounts();
+    int max_threads = omp_get_max_threads();
 
     std::string output_dir = createRunDirectory();
     std::cout << "Results directory: " << output_dir << std::endl;
+    std::cout << "OpenMP strong scaling thread counts:";
+    for (int threads : thread_counts)
+    {
+        std::cout << " " << threads;
+    }
+    std::cout << std::endl;
 
     // Print the header for our CSV data table
     std::cout << "Matrix_Size,Run,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
@@ -329,6 +456,19 @@ int main(int argc, char *argv[])
         CUDA_CHECK(cudaFree(d_A));
         CUDA_CHECK(cudaFree(d_B));
         CUDA_CHECK(cudaFree(d_C));
+
+        // --- 6. OpenMP Strong-Scaling Benchmark (fixed size, varying threads) ---
+        for (int threads : thread_counts)
+        {
+            omp_set_num_threads(threads);
+            for (int run = 1; run <= READINGS_PER_SIZE; ++run)
+            {
+                double duration_omp = timeMs([&]()
+                                             { openmpMatrixMultiply(h_A, h_B, h_C, N); });
+                scaling_readings.push_back({N, threads, run, duration_omp});
+            }
+        }
+        omp_set_num_threads(max_threads);
     }
 
     writeAllReadingsCsv(readings, output_dir);
@@ -350,10 +490,32 @@ int main(int argc, char *argv[])
                   << average.sequentialMs / average.cudaMs << "x" << std::endl;
     }
 
+    std::vector<ScalingAverage> scaling_averages = averageScalingReadings(scaling_readings, averages);
+    writeScalingReadingsCsv(scaling_readings, averages, output_dir);
+    writeScalingAveragesCsv(scaling_averages, output_dir);
+
+    std::cout << "\nOpenMP strong scaling (" << READINGS_PER_SIZE
+              << " readings per thread count, efficiency = speedup / threads):" << std::endl;
+    std::cout << "Matrix_Size,Threads,Sequential_CPU_ms,Parallel_CPU_ms,"
+              << "Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
+    for (const ScalingAverage &average : scaling_averages)
+    {
+        std::cout << average.matrixSize << "x" << average.matrixSize << ","
+                  << average.threads << ","
+                  << std::fixed << std::setprecision(4) << average.sequentialMs << ","
+                  << average.openmpMs << ","
+                  << std::setprecision(2) << average.speedup << "x,"
+                  << std::setprecision(4) << average.efficiency << std::endl;
+    }
+
     std::cout << "\nRaw readings written to "
               << (std::filesystem::path(output_dir) / ALL_READINGS_FILENAME).string() << std::endl;
     std::cout << "Average readings written to "
               << (std::filesystem::path(output_dir) / AVERAGES_FILENAME).string() << std::endl;
+    std::cout << "OpenMP scaling readings written to "
+              << (std::filesystem::path(output_dir) / SCALING_ALL_READINGS_FILENAME).string() << std::endl;
+    std::cout << "OpenMP scaling averages written to "
+              << (std::filesystem::path(output_dir) / SCALING_AVERAGES_FILENAME).string() << std::endl;
 
     runPlotScript(argc > 0 ? argv[0] : nullptr, output_dir);
 
