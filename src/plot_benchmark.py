@@ -125,7 +125,6 @@ def plot_speedup(output_dir, averages, title, filename, series):
             label=label,
         )
 
-    ax.axhline(1.0, color="black", linestyle=":", linewidth=1, label="No speedup")
     configure_axes(ax, sizes, title, "Speedup (x)")
     ax.set_ylim(bottom=0)
     ax.legend()
