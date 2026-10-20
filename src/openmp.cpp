@@ -2,7 +2,7 @@
 // Build: build.bat openmp.cpp
 // Output: <run_dir>/openmp_results.csv   (Matrix_Size, Threads, Run, Parallel_CPU_ms)
 //         <run_dir>/openmp_averages.csv  (Matrix_Size, Threads, Parallel_CPU_ms,
-//                                         Speedup_CPU_vs_Seq, Parallel_Efficiency)
+//                                         Speedup_vs_1_Thread, Parallel_Efficiency)
 //         <run_dir>/openmp_strong_scaling.png
 //
 // Thread-level parallelism: the outer row loop is split across threads. Each
@@ -10,11 +10,13 @@
 // loop is used on its own because MSVC's OpenMP 2.0 ignores collapse(2).
 // Overheads to discuss: thread creation/scheduling, memory-bandwidth limits,
 // cache effects (B is read column-wise), and fewer cores than threads.
+//
+// Speedup and efficiency use this program's own 1-thread run as the
+// strong-scaling baseline, so openmp.exe does not need sequential.exe.
 #include "common.h"
 #include <omp.h>
 #include <fstream>
 #include <iomanip>
-#include <map>
 
 void openmpMatrixMultiply(const std::vector<float> &A, const std::vector<float> &B,
                           std::vector<float> &C, int size)
@@ -40,37 +42,10 @@ std::vector<int> openmpThreadCounts()
     return counts;
 }
 
-// Speedups are always measured against the sequential run in the same folder.
-std::map<int, double> loadSequentialAverages(const std::string &run_dir)
-{
-    std::map<int, double> averages;
-    std::ifstream in(run_dir + "/sequential_averages.csv");
-    std::string line;
-    std::getline(in, line); // header
-    while (std::getline(in, line))
-    {
-        if (line.empty())
-            continue;
-        auto comma = line.find(',');
-        if (comma == std::string::npos)
-            continue;
-        averages[std::stoi(line.substr(0, comma))] = std::stod(line.substr(comma + 1));
-    }
-    return averages;
-}
-
 int main(int argc, char *argv[])
 {
     std::string run_dir = resolveRunDirectory(argc, argv);
     std::cout << "Run directory: " << run_dir << std::endl;
-
-    std::map<int, double> sequential_ms = loadSequentialAverages(run_dir);
-    if (sequential_ms.empty())
-    {
-        std::cerr << "ERROR: " << run_dir << "/sequential_averages.csv not found." << std::endl;
-        std::cerr << "       Run sequential.exe with the same run folder first." << std::endl;
-        return 1;
-    }
 
     std::ofstream raw(run_dir + "/openmp_results.csv");
     std::ofstream averages(run_dir + "/openmp_averages.csv");
@@ -80,7 +55,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     raw << "Matrix_Size,Threads,Run,Parallel_CPU_ms" << std::endl;
-    averages << "Matrix_Size,Threads,Parallel_CPU_ms,Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
+    averages << "Matrix_Size,Threads,Parallel_CPU_ms,Speedup_vs_1_Thread,Parallel_Efficiency" << std::endl;
 
     std::vector<int> thread_counts = openmpThreadCounts();
     std::cout << "Thread counts:";
@@ -95,6 +70,14 @@ int main(int argc, char *argv[])
         initializeMatrix(A, N, SEED);
         initializeMatrix(B, N, SEED + 1);
         sequentialMatrixMultiply(A, B, ref, N); // known-correct result
+
+        struct ThreadResult
+        {
+            int threads;
+            double average_ms;
+            bool correct;
+        };
+        std::vector<ThreadResult> results;
 
         for (int threads : thread_counts)
         {
@@ -114,20 +97,37 @@ int main(int argc, char *argv[])
                     << std::fixed << std::setprecision(4) << ms << std::endl;
             }
 
-            double average_ms = total / READINGS_PER_SIZE;
-            double speedup = sequential_ms[N] / average_ms;
-            double efficiency = speedup / threads;
+            results.push_back({threads, total / READINGS_PER_SIZE, correct});
+        }
 
-            averages << N << "," << threads << ","
-                     << std::fixed << std::setprecision(4) << average_ms << ","
+        // Strong-scaling baseline: this program's own 1-thread run.
+        double baseline_ms = 0.0;
+        for (const ThreadResult &result : results)
+        {
+            if (result.threads == 1)
+                baseline_ms = result.average_ms;
+        }
+        if (baseline_ms <= 0.0)
+        {
+            std::cerr << "ERROR: the thread sweep must include 1 thread." << std::endl;
+            return 1;
+        }
+
+        for (const ThreadResult &result : results)
+        {
+            double speedup = baseline_ms / result.average_ms;
+            double efficiency = speedup / result.threads;
+
+            averages << N << "," << result.threads << ","
+                     << std::fixed << std::setprecision(4) << result.average_ms << ","
                      << std::setprecision(2) << speedup << ","
                      << std::setprecision(4) << efficiency << std::endl;
 
-            std::cout << N << "x" << N << "," << threads << ","
-                      << std::fixed << std::setprecision(4) << average_ms << ","
+            std::cout << N << "x" << N << "," << result.threads << ","
+                      << std::fixed << std::setprecision(4) << result.average_ms << ","
                       << std::setprecision(2) << speedup << "x,"
                       << std::setprecision(4) << efficiency << ","
-                      << (correct ? "yes" : "NO") << std::endl;
+                      << (result.correct ? "yes" : "NO") << std::endl;
         }
     }
 

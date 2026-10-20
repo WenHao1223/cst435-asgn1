@@ -33,11 +33,6 @@ GPU_VS_CPU_SERIES = [
     ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#1E90FF", "D", "-"),
 ]
 
-CUDA_SERIES = [
-    ("Kernel_ms", "CUDA Kernel", "#1E90FF", "o", "-"),
-    ("E2E_ms", "CUDA End-to-End", "#00BFFF", "s", "--"),
-]
-
 MODES = {"sequential", "openmp", "cuda", "compare"}
 
 
@@ -155,20 +150,19 @@ def plot_sequential(output_dir, averages):
 
 
 def plot_cuda(output_dir, averages):
-    """Plot CUDA kernel time and end-to-end time."""
+    """Plot the whole GPU operation (copies + kernel + copy back)."""
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
-    for name, label, color, marker, linestyle in CUDA_SERIES:
-        ax.plot(
-            sizes,
-            column(averages, name),
-            color=color,
-            marker=marker,
-            linestyle=linestyle,
-            linewidth=2,
-            label=label,
-        )
+    ax.plot(
+        sizes,
+        column(averages, "Parallel_GPU_ms"),
+        color="#1E90FF",
+        marker="^",
+        linestyle="-.",
+        linewidth=2,
+        label="Parallel (CUDA)",
+    )
 
     configure_axes(
         ax,
@@ -232,7 +226,13 @@ def plot_speedup_bars(output_dir, averages, title, filename, series):
     return save_figure(figure, output_dir, filename)
 
 
-def plot_openmp_scaling(output_dir, scaling_averages):
+def plot_openmp_scaling(
+    output_dir,
+    scaling_averages,
+    speedup_column="Speedup_CPU_vs_Seq",
+    speedup_label="Speedup (x)",
+    title="OpenMP Strong Scaling",
+):
     """Plot OpenMP speedup and parallel efficiency against thread count."""
     sizes = sorted({int(row["Matrix_Size"]) for row in scaling_averages})
     thread_counts = sorted({int(row["Threads"]) for row in scaling_averages})
@@ -254,7 +254,7 @@ def plot_openmp_scaling(output_dir, scaling_averages):
 
         speedup_ax.plot(
             threads,
-            [float(row["Speedup_CPU_vs_Seq"]) for row in rows],
+            [float(row[speedup_column]) for row in rows],
             marker="o",
             linewidth=2,
             color=color,
@@ -278,7 +278,7 @@ def plot_openmp_scaling(output_dir, scaling_averages):
     )
 
     panels = [
-        (speedup_ax, "Speedup vs. Threads", "Speedup (x)"),
+        (speedup_ax, "Speedup vs. Threads", speedup_label),
         (efficiency_ax, "Parallel Efficiency vs. Threads", "Parallel efficiency"),
     ]
     for ax, title, ylabel in panels:
@@ -293,7 +293,7 @@ def plot_openmp_scaling(output_dir, scaling_averages):
         ax.set_ylim(bottom=0)
 
     speedup_ax.legend()
-    figure.suptitle("OpenMP Strong Scaling")
+    figure.suptitle(title)
     return save_figure(figure, output_dir, "openmp_strong_scaling.png")
 
 
@@ -334,7 +334,15 @@ def main():
     if mode == "sequential":
         paths = [plot_sequential(results_dir, load_csv(results_dir, "sequential_averages.csv"))]
     elif mode == "openmp":
-        paths = [plot_openmp_scaling(results_dir, load_csv(results_dir, "openmp_averages.csv"))]
+        paths = [
+            plot_openmp_scaling(
+                results_dir,
+                load_csv(results_dir, "openmp_averages.csv"),
+                speedup_column="Speedup_vs_1_Thread",
+                speedup_label="Speedup over 1 thread (x)",
+                title="OpenMP Strong Scaling (1-thread baseline)",
+            )
+        ]
     elif mode == "cuda":
         paths = [plot_cuda(results_dir, load_csv(results_dir, "cuda_averages.csv"))]
     elif mode == "compare":

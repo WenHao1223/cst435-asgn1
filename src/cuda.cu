@@ -1,12 +1,12 @@
 // cuda.cu - parallel GPU (CUDA) matrix multiplication
 // Build: build.bat cuda.cu
-// Output: <run_dir>/cuda_results.csv   (Matrix_Size, Run, Kernel_ms, E2E_ms)
-//         <run_dir>/cuda_averages.csv  (Matrix_Size, Kernel_ms, E2E_ms)
+// Output: <run_dir>/cuda_results.csv   (Matrix_Size, Run, Parallel_GPU_ms)
+//         <run_dir>/cuda_averages.csv  (Matrix_Size, Parallel_GPU_ms)
 //         <run_dir>/cuda_execution_time.png
 //
 // One CUDA thread computes one C[row][col] element and walks the full k range.
-// Kernel_ms measures only the kernel launch (CUDA events); E2E_ms includes the
-// host-to-device copies, the kernel and the copy back.
+// Parallel_GPU_ms is measured the same way as benchmark.cpp: host-to-device
+// copies, the kernel and the copy back, i.e. the whole GPU operation.
 #include "common.h"
 #include <cuda_runtime.h>
 #include <fstream>
@@ -55,10 +55,10 @@ int main(int argc, char *argv[])
         std::cerr << "ERROR: could not open the output CSV files in " << run_dir << std::endl;
         return 1;
     }
-    raw << "Matrix_Size,Run,Kernel_ms,E2E_ms" << std::endl;
-    averages << "Matrix_Size,Kernel_ms,E2E_ms" << std::endl;
+    raw << "Matrix_Size,Run,Parallel_GPU_ms" << std::endl;
+    averages << "Matrix_Size,Parallel_GPU_ms" << std::endl;
 
-    std::cout << "Matrix_Size,Kernel_ms,E2E_ms,Matches_Sequential" << std::endl;
+    std::cout << "Matrix_Size,Average_ms,Matches_Sequential" << std::endl;
 
     const dim3 threads_per_block(16, 16);
 
@@ -79,29 +79,18 @@ int main(int argc, char *argv[])
         dim3 num_blocks((N + threads_per_block.x - 1) / threads_per_block.x,
                         (N + threads_per_block.y - 1) / threads_per_block.y);
 
-        cudaEvent_t kernel_start, kernel_stop;
-        CUDA_CHECK(cudaEventCreate(&kernel_start));
-        CUDA_CHECK(cudaEventCreate(&kernel_stop));
-
-        double kernel_total = 0.0;
-        double e2e_total = 0.0;
+        double total = 0.0;
         bool correct = true;
 
         for (int run = 1; run <= READINGS_PER_SIZE; ++run)
         {
-            double e2e_ms = timeMs([&]()
+            double gpu_ms = timeMs([&]()
                                    {
                 CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), matrix_bytes, cudaMemcpyHostToDevice));
                 CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), matrix_bytes, cudaMemcpyHostToDevice));
-                CUDA_CHECK(cudaEventRecord(kernel_start));
                 matrixMulGpu<<<num_blocks, threads_per_block>>>(d_A, d_B, d_C, N);
                 CUDA_CHECK(cudaGetLastError());
-                CUDA_CHECK(cudaEventRecord(kernel_stop));
-                CUDA_CHECK(cudaEventSynchronize(kernel_stop));
                 CUDA_CHECK(cudaMemcpy(h_C.data(), d_C, matrix_bytes, cudaMemcpyDeviceToHost)); });
-
-            float kernel_ms = 0.0f;
-            CUDA_CHECK(cudaEventElapsedTime(&kernel_ms, kernel_start, kernel_stop));
 
             // The kernel is deterministic, so checking the first run is enough.
             if (run == 1 && maxRelDiff(h_C, h_ref) > 1e-4)
@@ -109,30 +98,22 @@ int main(int argc, char *argv[])
                 correct = false;
             }
 
-            kernel_total += kernel_ms;
-            e2e_total += e2e_ms;
-
+            total += gpu_ms;
             raw << N << "," << run << ","
-                << std::fixed << std::setprecision(4) << kernel_ms << ","
-                << e2e_ms << std::endl;
+                << std::fixed << std::setprecision(4) << gpu_ms << std::endl;
         }
 
-        CUDA_CHECK(cudaEventDestroy(kernel_start));
-        CUDA_CHECK(cudaEventDestroy(kernel_stop));
         CUDA_CHECK(cudaFree(d_A));
         CUDA_CHECK(cudaFree(d_B));
         CUDA_CHECK(cudaFree(d_C));
 
-        double average_kernel_ms = kernel_total / READINGS_PER_SIZE;
-        double average_e2e_ms = e2e_total / READINGS_PER_SIZE;
+        double average_ms = total / READINGS_PER_SIZE;
 
-        averages << N << ","
-                 << std::fixed << std::setprecision(4) << average_kernel_ms << ","
-                 << average_e2e_ms << std::endl;
+        averages << N << "," << std::fixed << std::setprecision(4)
+                 << average_ms << std::endl;
 
         std::cout << N << "x" << N << ","
-                  << std::fixed << std::setprecision(4) << average_kernel_ms << ","
-                  << average_e2e_ms << ","
+                  << std::fixed << std::setprecision(4) << average_ms << ","
                   << (correct ? "yes" : "NO") << std::endl;
     }
 
