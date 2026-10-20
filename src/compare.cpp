@@ -1,32 +1,32 @@
-// compare.cpp - merge results from Members 2-4, compute speedup/efficiency
-// Build: g++ -O2 -std=c++17 compare.cpp -o compare
-// Run AFTER sequential, openmp and cuda_bench have produced their CSVs in results/.
-// Output (same names/columns as the original benchmark so plot_benchmark.py still works):
-//   results/averages.csv                  - per size: seq, OpenMP(max threads), GPU end-to-end, speedups
-//   results/openmp_scaling_averages.csv   - per size & thread count: speedup + efficiency
-//   (GPU_Kernel_ms is appended as an extra last column of averages.csv)
+// compare.cpp - merge the per-program averages and draw comparison charts
+// Build: build.bat compare.cpp
+// Run AFTER sequential, openmp and cuda have written their averages into the
+// same run folder.
+// Output: <run_dir>/averages.csv
+//         <run_dir>/execution_time_comparison.png
+//         <run_dir>/speedup_vs_sequential_cpu.png
+//         <run_dir>/gpu_speedup_over_parallel_cpu.png
+//
+// This program only combines the three programs' results: each implementation
+// writes its own raw readings, averages and graph.
+#include "common.h"
 #include <fstream>
 #include <sstream>
-#include <iostream>
 #include <iomanip>
 #include <map>
-#include <vector>
-#include <string>
 #include <algorithm>
-#include <cstdlib>
-#include <filesystem>
-
-const std::string DIR = "results";
 
 // Reads a CSV (skipping the header) into rows of doubles.
-std::vector<std::vector<double>> readCsv(const std::string &name)
+std::vector<std::vector<double>> readCsv(const std::string &path)
 {
-    std::ifstream in(DIR + "/" + name);
+    std::ifstream in(path);
     if (!in)
     {
-        std::cerr << "Missing " << DIR << "/" << name << " - run that member's program first.\n";
+        std::cerr << "ERROR: " << path << " not found." << std::endl;
+        std::cerr << "       Run the matching program with the same run folder first." << std::endl;
         exit(EXIT_FAILURE);
     }
+
     std::vector<std::vector<double>> rows;
     std::string line;
     std::getline(in, line); // header
@@ -44,81 +44,69 @@ std::vector<std::vector<double>> readCsv(const std::string &name)
     return rows;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    // sequential: [size, run, ms]
-    std::map<int, std::vector<double>> seq, gpuKernel, gpuE2E;
-    for (auto &r : readCsv("sequential_results.csv"))
-        seq[(int)r[0]].push_back(r[2]);
-    // cuda: [size, run, kernel_ms, e2e_ms]
-    for (auto &r : readCsv("cuda_results.csv"))
+    std::string run_dir = resolveRunDirectory(argc, argv);
+    std::cout << "Run directory: " << run_dir << std::endl;
+
+    // sequential averages: [size, ms]
+    std::map<int, double> sequential_ms;
+    for (auto &row : readCsv(run_dir + "/sequential_averages.csv"))
+        sequential_ms[(int)row[0]] = row[1];
+
+    // openmp averages: [size, threads, ms, speedup, efficiency]
+    std::map<std::pair<int, int>, double> openmp_ms;
+    int max_threads = 1;
+    for (auto &row : readCsv(run_dir + "/openmp_averages.csv"))
     {
-        gpuKernel[(int)r[0]].push_back(r[2]);
-        gpuE2E[(int)r[0]].push_back(r[3]);
-    }
-    // openmp: [size, threads, run, ms]
-    std::map<std::pair<int, int>, std::vector<double>> omp;
-    int maxThreads = 1;
-    for (auto &r : readCsv("openmp_results.csv"))
-    {
-        omp[{(int)r[0], (int)r[1]}].push_back(r[3]);
-        maxThreads = std::max(maxThreads, (int)r[1]);
+        openmp_ms[{(int)row[0], (int)row[1]}] = row[2];
+        max_threads = std::max(max_threads, (int)row[1]);
     }
 
-    auto avg = [](const std::vector<double> &v)
+    // cuda averages: [size, kernel_ms, e2e_ms]
+    std::map<int, double> gpu_kernel_ms, gpu_e2e_ms;
+    for (auto &row : readCsv(run_dir + "/cuda_averages.csv"))
     {
-        double s = 0;
-        for (double x : v)
-            s += x;
-        return v.empty() ? 0.0 : s / v.size();
-    };
+        gpu_kernel_ms[(int)row[0]] = row[1];
+        gpu_e2e_ms[(int)row[0]] = row[2];
+    }
 
-    // ---- averages.csv ----
-    std::ofstream out(DIR + "/averages.csv");
+    std::ofstream out(run_dir + "/averages.csv");
+    if (!out)
+    {
+        std::cerr << "ERROR: could not open " << run_dir << "/averages.csv" << std::endl;
+        return 1;
+    }
+
     out << "Matrix_Size,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
         << "Speedup_CPU_vs_Seq,Speedup_GPU_vs_CPU,Speedup_GPU_vs_Seq,GPU_Kernel_ms" << std::endl;
     std::cout << "Matrix_Size,Seq_ms,OpenMP_ms,GPU_E2E_ms,GPU_Kernel_ms,CPU/Seq,GPU/CPU,GPU/Seq" << std::endl;
-    for (auto &[size, runs] : seq)
+
+    for (auto &[size, seq_ms] : sequential_ms)
     {
-        double s = avg(runs);
-        double o = avg(omp[{size, maxThreads}]);
-        double g = avg(gpuE2E[size]);
-        double k = avg(gpuKernel[size]);
-        out << size << "," << std::fixed << std::setprecision(4) << s << "," << o << "," << g << ","
-            << std::setprecision(2) << s / o << "," << o / g << "," << s / g << ","
-            << std::setprecision(4) << k << std::endl;
-        std::cout << size << "x" << size << "," << std::fixed << std::setprecision(4) << s << ","
-                  << o << "," << g << "," << k << "," << std::setprecision(2)
-                  << s / o << "x," << o / g << "x," << s / g << "x" << std::endl;
+        double omp_ms = openmp_ms[{size, max_threads}];
+        double gpu_ms = gpu_e2e_ms[size];
+        double kernel_ms = gpu_kernel_ms[size];
+
+        out << size << "," << std::fixed << std::setprecision(4)
+            << seq_ms << "," << omp_ms << "," << gpu_ms << ","
+            << std::setprecision(2) << seq_ms / omp_ms << ","
+            << omp_ms / gpu_ms << ","
+            << seq_ms / gpu_ms << ","
+            << std::setprecision(4) << kernel_ms << std::endl;
+
+        std::cout << size << "x" << size << "," << std::fixed << std::setprecision(4)
+                  << seq_ms << "," << omp_ms << "," << gpu_ms << "," << kernel_ms << ","
+                  << std::setprecision(2) << seq_ms / omp_ms << "x,"
+                  << omp_ms / gpu_ms << "x,"
+                  << seq_ms / gpu_ms << "x" << std::endl;
     }
 
-    // ---- openmp_scaling_averages.csv ----
-    std::ofstream sc(DIR + "/openmp_scaling_averages.csv");
-    sc << "Matrix_Size,Threads,Sequential_CPU_ms,Parallel_CPU_ms,"
-       << "Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
-    std::cout << "\nMatrix_Size,Threads,Seq_ms,OpenMP_ms,Speedup,Efficiency" << std::endl;
-    for (auto &[key, runs] : omp)
-    {
-        int size = key.first, threads = key.second;
-        double s = avg(seq[size]), o = avg(runs);
-        double speedup = s / o, eff = speedup / threads;
-        sc << size << "," << threads << "," << std::fixed << std::setprecision(4) << s << "," << o << ","
-           << std::setprecision(2) << speedup << "," << std::setprecision(4) << eff << std::endl;
-        std::cout << size << "x" << size << "," << threads << "," << std::fixed << std::setprecision(4)
-                  << s << "," << o << "," << std::setprecision(2) << speedup << "x,"
-                  << std::setprecision(4) << eff << std::endl;
-    }
+    std::cout << "Wrote " << run_dir << "/averages.csv" << std::endl;
+    std::cout << "Using OpenMP results at " << max_threads << " threads." << std::endl;
 
-    // ---- charts (reuses the existing plot script if present) ----
-    if (std::filesystem::exists("plot_benchmark.py"))
-    {
-        std::string cmd = "python plot_benchmark.py \"" + DIR + "\"";
-        if (std::system(cmd.c_str()) != 0)
-            std::cerr << "Warning: plot failed (is matplotlib installed?)." << std::endl;
-    }
-    else
-        std::cerr << "plot_benchmark.py not found; skipping charts." << std::endl;
+    if (!runPlotScript(argv[0], "compare \"" + run_dir + "\""))
+        std::cerr << "Warning: chart generation failed (is matplotlib installed?)." << std::endl;
 
-    std::cout << "Wrote " << DIR << "/averages.csv and " << DIR << "/openmp_scaling_averages.csv" << std::endl;
     return 0;
 }

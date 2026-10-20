@@ -1,6 +1,8 @@
 // cuda.cu - parallel GPU (CUDA) matrix multiplication
 // Build: build.bat cuda.cu
-// Output: results/cuda_results.csv  (Matrix_Size,Run,Kernel_ms,E2E_ms)
+// Output: <run_dir>/cuda_results.csv   (Matrix_Size, Run, Kernel_ms, E2E_ms)
+//         <run_dir>/cuda_averages.csv  (Matrix_Size, Kernel_ms, E2E_ms)
+//         <run_dir>/cuda_execution_time.png
 //
 // One CUDA thread computes one C[row][col] element and walks the full k range.
 // Kernel_ms measures only the kernel launch (CUDA events); E2E_ms includes the
@@ -41,18 +43,22 @@ __global__ void matrixMulGpu(const float *A, const float *B, float *C, int size)
     }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    ensureResultsDir();
-    std::ofstream file(RESULTS_DIR + "/cuda_results.csv");
-    if (!file)
+    std::string run_dir = resolveRunDirectory(argc, argv);
+    std::cout << "Run directory: " << run_dir << std::endl;
+
+    std::ofstream raw(run_dir + "/cuda_results.csv");
+    std::ofstream averages(run_dir + "/cuda_averages.csv");
+    if (!raw || !averages)
     {
-        std::cerr << "ERROR: could not open " << RESULTS_DIR << "/cuda_results.csv" << std::endl;
+        std::cerr << "ERROR: could not open the output CSV files in " << run_dir << std::endl;
         return 1;
     }
-    file << "Matrix_Size,Run,Kernel_ms,E2E_ms" << std::endl;
+    raw << "Matrix_Size,Run,Kernel_ms,E2E_ms" << std::endl;
+    averages << "Matrix_Size,Kernel_ms,E2E_ms" << std::endl;
 
-    std::cout << "Matrix_Size,Kernel_ms,E2E_ms,Correct" << std::endl;
+    std::cout << "Matrix_Size,Kernel_ms,E2E_ms,Matches_Sequential" << std::endl;
 
     const dim3 threads_per_block(16, 16);
 
@@ -106,9 +112,9 @@ int main()
             kernel_total += kernel_ms;
             e2e_total += e2e_ms;
 
-            file << N << "," << run << ","
-                 << std::fixed << std::setprecision(4) << kernel_ms << ","
-                 << e2e_ms << std::endl;
+            raw << N << "," << run << ","
+                << std::fixed << std::setprecision(4) << kernel_ms << ","
+                << e2e_ms << std::endl;
         }
 
         CUDA_CHECK(cudaEventDestroy(kernel_start));
@@ -117,13 +123,24 @@ int main()
         CUDA_CHECK(cudaFree(d_B));
         CUDA_CHECK(cudaFree(d_C));
 
+        double average_kernel_ms = kernel_total / READINGS_PER_SIZE;
+        double average_e2e_ms = e2e_total / READINGS_PER_SIZE;
+
+        averages << N << ","
+                 << std::fixed << std::setprecision(4) << average_kernel_ms << ","
+                 << average_e2e_ms << std::endl;
+
         std::cout << N << "x" << N << ","
-                  << std::fixed << std::setprecision(4)
-                  << kernel_total / READINGS_PER_SIZE << ","
-                  << e2e_total / READINGS_PER_SIZE << ","
+                  << std::fixed << std::setprecision(4) << average_kernel_ms << ","
+                  << average_e2e_ms << ","
                   << (correct ? "yes" : "NO") << std::endl;
     }
 
-    std::cout << "Wrote " << RESULTS_DIR << "/cuda_results.csv" << std::endl;
+    std::cout << "Wrote " << run_dir << "/cuda_results.csv" << std::endl;
+    std::cout << "Wrote " << run_dir << "/cuda_averages.csv" << std::endl;
+
+    if (!runPlotScript(argv[0], "cuda \"" + run_dir + "\""))
+        std::cerr << "Warning: chart generation failed (is matplotlib installed?)." << std::endl;
+
     return 0;
 }

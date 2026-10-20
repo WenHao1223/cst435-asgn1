@@ -1,6 +1,9 @@
 // openmp.cpp - parallel CPU (OpenMP) with thread scaling
-// Build: g++ -O2 -fopenmp -std=c++17 openmp.cpp -o openmp
-// Output: results/openmp_results.csv  (Matrix_Size,Threads,Run,Parallel_CPU_ms)
+// Build: build.bat openmp.cpp
+// Output: <run_dir>/openmp_results.csv   (Matrix_Size, Threads, Run, Parallel_CPU_ms)
+//         <run_dir>/openmp_averages.csv  (Matrix_Size, Threads, Parallel_CPU_ms,
+//                                         Speedup_CPU_vs_Seq, Parallel_Efficiency)
+//         <run_dir>/openmp_strong_scaling.png
 //
 // Thread-level parallelism: the outer row loop is split across threads. Each
 // thread writes disjoint rows of C, so no synchronisation is needed. The row
@@ -11,6 +14,7 @@
 #include <omp.h>
 #include <fstream>
 #include <iomanip>
+#include <map>
 
 void openmpMatrixMultiply(const std::vector<float> &A, const std::vector<float> &B,
                           std::vector<float> &C, int size)
@@ -36,18 +40,54 @@ std::vector<int> openmpThreadCounts()
     return counts;
 }
 
-int main()
+// Speedups are always measured against the sequential run in the same folder.
+std::map<int, double> loadSequentialAverages(const std::string &run_dir)
 {
-    ensureResultsDir();
-    std::ofstream file(RESULTS_DIR + "/openmp_results.csv");
-    file << "Matrix_Size,Threads,Run,Parallel_CPU_ms" << std::endl;
+    std::map<int, double> averages;
+    std::ifstream in(run_dir + "/sequential_averages.csv");
+    std::string line;
+    std::getline(in, line); // header
+    while (std::getline(in, line))
+    {
+        if (line.empty())
+            continue;
+        auto comma = line.find(',');
+        if (comma == std::string::npos)
+            continue;
+        averages[std::stoi(line.substr(0, comma))] = std::stod(line.substr(comma + 1));
+    }
+    return averages;
+}
+
+int main(int argc, char *argv[])
+{
+    std::string run_dir = resolveRunDirectory(argc, argv);
+    std::cout << "Run directory: " << run_dir << std::endl;
+
+    std::map<int, double> sequential_ms = loadSequentialAverages(run_dir);
+    if (sequential_ms.empty())
+    {
+        std::cerr << "ERROR: " << run_dir << "/sequential_averages.csv not found." << std::endl;
+        std::cerr << "       Run sequential.exe with the same run folder first." << std::endl;
+        return 1;
+    }
+
+    std::ofstream raw(run_dir + "/openmp_results.csv");
+    std::ofstream averages(run_dir + "/openmp_averages.csv");
+    if (!raw || !averages)
+    {
+        std::cerr << "ERROR: could not open the output CSV files in " << run_dir << std::endl;
+        return 1;
+    }
+    raw << "Matrix_Size,Threads,Run,Parallel_CPU_ms" << std::endl;
+    averages << "Matrix_Size,Threads,Parallel_CPU_ms,Speedup_CPU_vs_Seq,Parallel_Efficiency" << std::endl;
 
     std::vector<int> thread_counts = openmpThreadCounts();
     std::cout << "Thread counts:";
     for (int t : thread_counts)
         std::cout << " " << t;
     std::cout << std::endl;
-    std::cout << "Matrix_Size,Threads,Average_ms,Correct" << std::endl;
+    std::cout << "Matrix_Size,Threads,Average_ms,Speedup,Efficiency,Matches_Sequential" << std::endl;
 
     for (int N : MATRIX_SIZES)
     {
@@ -70,14 +110,32 @@ int main()
                 double ms = timeMs([&]()
                                    { openmpMatrixMultiply(A, B, C, N); });
                 total += ms;
-                file << N << "," << threads << "," << run << ","
-                     << std::fixed << std::setprecision(4) << ms << std::endl;
+                raw << N << "," << threads << "," << run << ","
+                    << std::fixed << std::setprecision(4) << ms << std::endl;
             }
+
+            double average_ms = total / READINGS_PER_SIZE;
+            double speedup = sequential_ms[N] / average_ms;
+            double efficiency = speedup / threads;
+
+            averages << N << "," << threads << ","
+                     << std::fixed << std::setprecision(4) << average_ms << ","
+                     << std::setprecision(2) << speedup << ","
+                     << std::setprecision(4) << efficiency << std::endl;
+
             std::cout << N << "x" << N << "," << threads << ","
-                      << std::fixed << std::setprecision(4) << total / READINGS_PER_SIZE
-                      << "," << (correct ? "yes" : "NO") << std::endl;
+                      << std::fixed << std::setprecision(4) << average_ms << ","
+                      << std::setprecision(2) << speedup << "x,"
+                      << std::setprecision(4) << efficiency << ","
+                      << (correct ? "yes" : "NO") << std::endl;
         }
     }
-    std::cout << "Wrote " << RESULTS_DIR << "/openmp_results.csv" << std::endl;
+
+    std::cout << "Wrote " << run_dir << "/openmp_results.csv" << std::endl;
+    std::cout << "Wrote " << run_dir << "/openmp_averages.csv" << std::endl;
+
+    if (!runPlotScript(argv[0], "openmp \"" + run_dir + "\""))
+        std::cerr << "Warning: chart generation failed (is matplotlib installed?)." << std::endl;
+
     return 0;
 }

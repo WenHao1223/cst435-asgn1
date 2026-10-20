@@ -1,6 +1,11 @@
-"""Render comparison charts from the benchmark CSV files.
+"""Render benchmark charts.
 
-Usage: python plot_benchmark.py <run_dir>
+Usage:
+  python plot_benchmark.py sequential <run_dir>
+  python plot_benchmark.py openmp <run_dir>
+  python plot_benchmark.py cuda <run_dir>
+  python plot_benchmark.py compare <run_dir>
+  python plot_benchmark.py <run_dir>          # all charts (benchmark.cpp output)
 """
 
 import csv
@@ -28,11 +33,26 @@ GPU_VS_CPU_SERIES = [
     ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#1E90FF", "D", "-"),
 ]
 
+CUDA_SERIES = [
+    ("Kernel_ms", "CUDA Kernel", "#1E90FF", "o", "-"),
+    ("E2E_ms", "CUDA End-to-End", "#00BFFF", "s", "--"),
+]
+
+MODES = {"sequential", "openmp", "cuda", "compare"}
+
 
 def read_csv(path):
     """Read a CSV file and return a list of dictionaries, one per row."""
     with open(path, newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def load_csv(results_dir, filename):
+    """Read a CSV from a run folder, stopping with a clear message if missing."""
+    path = os.path.join(results_dir, filename)
+    if not os.path.isfile(path):
+        sys.exit(f"error: {path} not found - run the matching program first")
+    return read_csv(path)
 
 
 def column(rows, name):
@@ -107,6 +127,58 @@ def plot_execution_time(output_dir, averages, readings):
     ax.set_yscale("log")
     ax.legend()
     return save_figure(figure, output_dir, "execution_time_comparison.png")
+
+
+def plot_sequential(output_dir, averages):
+    """Plot the sequential baseline on its own."""
+    sizes = matrix_sizes(averages)
+    figure, ax = plt.subplots(figsize=(9, 5.5))
+
+    ax.plot(
+        sizes,
+        column(averages, "Sequential_CPU_ms"),
+        color="#000000",
+        marker="o",
+        linewidth=2,
+        label="Sequential (CPU)",
+    )
+
+    configure_axes(
+        ax,
+        sizes,
+        "Sequential CPU Execution Time vs. Matrix Size",
+        "Execution time (ms, log scale)",
+    )
+    ax.set_yscale("log")
+    ax.legend()
+    return save_figure(figure, output_dir, "sequential_execution_time.png")
+
+
+def plot_cuda(output_dir, averages):
+    """Plot CUDA kernel time and end-to-end time."""
+    sizes = matrix_sizes(averages)
+    figure, ax = plt.subplots(figsize=(9, 5.5))
+
+    for name, label, color, marker, linestyle in CUDA_SERIES:
+        ax.plot(
+            sizes,
+            column(averages, name),
+            color=color,
+            marker=marker,
+            linestyle=linestyle,
+            linewidth=2,
+            label=label,
+        )
+
+    configure_axes(
+        ax,
+        sizes,
+        "CUDA Execution Time vs. Matrix Size",
+        "Execution time (ms, log scale)",
+    )
+    ax.set_yscale("log")
+    ax.legend()
+    return save_figure(figure, output_dir, "cuda_execution_time.png")
 
 
 def plot_speedup(output_dir, averages, title, filename, series):
@@ -225,32 +297,19 @@ def plot_openmp_scaling(output_dir, scaling_averages):
     return save_figure(figure, output_dir, "openmp_strong_scaling.png")
 
 
-def main():
-    """Main function to read CSV files and generate plots."""
-    results_dir = sys.argv[1] if len(sys.argv) > 1 else "results"
-
-    averages_path = os.path.join(results_dir, "averages.csv")
-    if not os.path.isfile(averages_path):
-        sys.exit(f"error: {averages_path} not found")
-
-    readings_path = os.path.join(results_dir, "all_readings.csv")
-    readings = read_csv(readings_path) if os.path.isfile(readings_path) else []
-    averages = read_csv(averages_path)
-
-    scaling_path = os.path.join(results_dir, "openmp_scaling_averages.csv")
-    scaling_averages = read_csv(scaling_path) if os.path.isfile(scaling_path) else []
-
-    paths = [
-        plot_execution_time(results_dir, averages, readings),
+def plot_compare(output_dir, averages, readings=None):
+    """Draw the cross-implementation charts."""
+    return [
+        plot_execution_time(output_dir, averages, readings or []),
         plot_speedup_bars(
-            results_dir,
+            output_dir,
             averages,
             "Speedup Relative to Sequential CPU",
             "speedup_vs_sequential_cpu.png",
             SPEEDUP_VS_SEQUENTIAL_SERIES,
         ),
         plot_speedup(
-            results_dir,
+            output_dir,
             averages,
             "GPU Speedup Over Parallel CPU",
             "gpu_speedup_over_parallel_cpu.png",
@@ -258,8 +317,37 @@ def main():
         ),
     ]
 
-    if scaling_averages:
-        paths.append(plot_openmp_scaling(results_dir, scaling_averages))
+
+def main():
+    """Generate the charts for the requested program or run folder."""
+    args = sys.argv[1:]
+    mode = None
+    results_dir = "results"
+
+    if args and args[0] in MODES:
+        mode = args[0]
+        if len(args) > 1:
+            results_dir = args[1]
+    elif args:
+        results_dir = args[0]
+
+    if mode == "sequential":
+        paths = [plot_sequential(results_dir, load_csv(results_dir, "sequential_averages.csv"))]
+    elif mode == "openmp":
+        paths = [plot_openmp_scaling(results_dir, load_csv(results_dir, "openmp_averages.csv"))]
+    elif mode == "cuda":
+        paths = [plot_cuda(results_dir, load_csv(results_dir, "cuda_averages.csv"))]
+    elif mode == "compare":
+        paths = plot_compare(results_dir, load_csv(results_dir, "averages.csv"))
+    else:
+        # benchmark.cpp output: merged averages plus the OpenMP scaling table.
+        averages = load_csv(results_dir, "averages.csv")
+        readings_path = os.path.join(results_dir, "all_readings.csv")
+        readings = read_csv(readings_path) if os.path.isfile(readings_path) else []
+        scaling_path = os.path.join(results_dir, "openmp_scaling_averages.csv")
+        paths = plot_compare(results_dir, averages, readings)
+        if os.path.isfile(scaling_path):
+            paths.append(plot_openmp_scaling(results_dir, read_csv(scaling_path)))
 
     for path in paths:
         print(f"graph written to {path}")

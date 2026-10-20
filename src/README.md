@@ -17,16 +17,17 @@ OpenMP parallel efficiency.
 | File | Purpose |
 | --- | --- |
 | `benchmark.cpp` | Standalone all-in-one benchmark. Runs all three implementations in one process. |
-| `common.h` | Shared sizes, seed, timing helpers and the sequential reference. |
-| `sequential.cpp` | Sequential CPU baseline, writes `sequential_results.csv`. |
-| `openmp.cpp` | OpenMP implementation with a thread sweep, writes `openmp_results.csv`. |
-| `cuda.cu` | CUDA kernel, writes `cuda_results.csv` (kernel and end-to-end times). |
-| `compare.cpp` | Merges the three CSVs, computes speedup/efficiency and draws the charts. |
-| `plot_benchmark.py` | Chart generation (called by `compare` and `benchmark`). |
+| `common.h` | Shared sizes, seed, timing/validation helpers, run-folder and plot helpers. |
+| `sequential.cpp` | Sequential CPU baseline. Writes raw readings, averages and its own graph. |
+| `openmp.cpp` | OpenMP implementation with a thread sweep. Writes raw readings, averages (speedup/efficiency) and the strong-scaling graph. |
+| `cuda.cu` | CUDA kernel. Writes raw kernel/end-to-end readings, averages and its own graph. |
+| `compare.cpp` | Merges the three programs' averages into `averages.csv` and draws the comparison charts. |
+| `plot_benchmark.py` | Chart generation (called by every program, or run by hand). |
 | `build.bat` | Builds every program, or a single source file. |
+| `run_all.bat` | Runs the split pipeline into one timestamped folder. |
 
-The split programs (`sequential` to `compare`) are meant to be run in order.
-`benchmark` is the self-contained alternative and does not need the others.
+Each split program writes its own raw readings, averages and graph. `compare`
+does not re-run or re-plot the per-program results; it only combines them.
 
 ## Build
 
@@ -63,18 +64,27 @@ build.bat
 
 ```bat
 cd src
-.\sequential.exe
-.\openmp.exe
-.\cuda.exe
-.\compare.exe
+run_all.bat
 ```
 
-Run the programs in that order: `compare` reads the CSV files produced by the
-first three and fails with a "Missing results/...csv" message if any are absent.
+`run_all.bat` creates one timestamped folder, e.g.
+`results/2026-10-21_01-15-42/`, then runs `sequential`, `openmp`, `cuda` and
+`compare` with that folder. Every run gets a new folder, so earlier results are
+never overwritten.
 
-Each program prints a progress table and writes its CSV to `results/` in the
-current directory. Run everything from `src` so the output lands in
-`src/results/` and `compare` can find `plot_benchmark.py`.
+To run the programs by hand, pass the same folder to all four:
+
+```bat
+.\sequential.exe results\my-run
+.\openmp.exe     results\my-run
+.\cuda.exe       results\my-run
+.\compare.exe    results\my-run
+```
+
+`openmp` reads `sequential_averages.csv` for its speedups, and `compare` reads
+all three averages files, so the order matters. If you omit the folder, each
+program creates its own timestamped folder; use that when you only want one
+program's output or graph, not when you want `compare` to combine them.
 
 ### Option B - all-in-one benchmark
 
@@ -84,37 +94,71 @@ cd src
 ```
 
 This runs sequential, OpenMP (including the thread sweep) and CUDA in one go and
-writes everything to a timestamped folder, e.g. `results/2026-10-20_23-32-35/`.
-Every run gets its own folder, so previous runs are never overwritten.
+writes everything to a timestamped folder, e.g. `results/2026-10-21_01-15-42/`.
+It is independent of the split programs.
+
+## Validation
+
+`sequential.exe` runs two checks before benchmarking and names each one:
+
+```
+[PASS] 2x2 known result: [[1,2],[3,4]] x [[5,6],[7,8]] == [[19,22],[43,50]]
+[PASS] 64x64 identity: A x I equals A
+Validation PASSED: 2/2 checks passed
+```
+
+`openmp.exe` and `cuda.exe` compare every result against the sequential
+reference and print `yes`/`NO` in the `Matches_Sequential` column. If a check
+fails, the program exits before writing results (sequential) or reports `NO`
+for that size/thread count.
 
 ## Output
 
-Split pipeline (`results/`):
+`run_all.bat` writes everything into one timestamped folder. Each program owns
+its files:
 
-| File | Contents |
+| Program | Files |
+| --- | --- |
+| `sequential` | `sequential_results.csv`, `sequential_averages.csv`, `sequential_execution_time.png` |
+| `openmp` | `openmp_results.csv`, `openmp_averages.csv`, `openmp_strong_scaling.png` |
+| `cuda` | `cuda_results.csv`, `cuda_averages.csv`, `cuda_execution_time.png` |
+| `compare` | `averages.csv`, `execution_time_comparison.png`, `speedup_vs_sequential_cpu.png`, `gpu_speedup_over_parallel_cpu.png` |
+
+CSV columns:
+
+| File | Columns |
 | --- | --- |
 | `sequential_results.csv` | `Matrix_Size, Run, Sequential_CPU_ms` |
+| `sequential_averages.csv` | `Matrix_Size, Sequential_CPU_ms` |
 | `openmp_results.csv` | `Matrix_Size, Threads, Run, Parallel_CPU_ms` |
+| `openmp_averages.csv` | `Matrix_Size, Threads, Parallel_CPU_ms, Speedup_CPU_vs_Seq, Parallel_Efficiency` |
 | `cuda_results.csv` | `Matrix_Size, Run, Kernel_ms, E2E_ms` |
-| `averages.csv` | Per size: sequential/OpenMP/GPU times, speedups, `GPU_Kernel_ms` |
-| `openmp_scaling_averages.csv` | Per size and thread count: speedup and parallel efficiency |
+| `cuda_averages.csv` | `Matrix_Size, Kernel_ms, E2E_ms` |
+| `averages.csv` | `Matrix_Size, Sequential_CPU_ms, Parallel_CPU_ms, Parallel_GPU_ms, Speedup_CPU_vs_Seq, Speedup_GPU_vs_CPU, Speedup_GPU_vs_Seq, GPU_Kernel_ms` |
 
-Charts written to the same folder:
+`compare` uses the OpenMP averages at the highest thread count for
+`Parallel_CPU_ms`, matching the all-in-one benchmark.
 
-- `execution_time_comparison.png` - execution time vs matrix size (log scale).
-- `speedup_vs_sequential_cpu.png` - OpenMP and CUDA speedup vs the sequential CPU.
-- `gpu_speedup_over_parallel_cpu.png` - CUDA speedup over the parallel CPU.
+Charts:
+
+- `sequential_execution_time.png` - sequential time vs matrix size (log scale).
+- `cuda_execution_time.png` - CUDA kernel time and end-to-end time vs matrix size.
 - `openmp_strong_scaling.png` - OpenMP speedup and efficiency vs thread count.
+- `execution_time_comparison.png` - all three implementations vs matrix size.
+- `speedup_vs_sequential_cpu.png` - OpenMP and CUDA speedup vs sequential CPU.
+- `gpu_speedup_over_parallel_cpu.png` - CUDA speedup over the parallel CPU.
 
-`benchmark` writes the same charts plus its raw-reading CSVs
-(`all_readings.csv`, `openmp_scaling_all_readings.csv`) into its timestamp folder.
-
-To redraw the charts for an existing results folder:
+To redraw one program's charts for an existing folder:
 
 ```bat
-python plot_benchmark.py results
-python plot_benchmark.py results\2026-10-20_23-32-35
+python plot_benchmark.py sequential results\2026-10-21_01-15-42
+python plot_benchmark.py openmp     results\2026-10-21_01-15-42
+python plot_benchmark.py cuda       results\2026-10-21_01-15-42
+python plot_benchmark.py compare    results\2026-10-21_01-15-42
 ```
+
+Running `python plot_benchmark.py <folder>` without a mode still draws every
+chart, which is what `benchmark.exe` expects.
 
 ## How the metrics are calculated
 
@@ -131,16 +175,16 @@ Edit `common.h` to change the experiment:
 
 ```cpp
 const int READINGS_PER_SIZE = 10;
-const std::vector<int> MATRIX_SIZES = {128, 256, 512, 1024, 2048, 3072, 4096};
+const std::vector<int> MATRIX_SIZES = {128, 256, 512, 1024};
 const unsigned SEED = 42;
 ```
 
+The defaults are still expensive: each size is repeated 10 times and the
+OpenMP thread sweep repeats every size for each thread count. For a quick
+check, reduce `MATRIX_SIZES` and `READINGS_PER_SIZE` before building.
+
 `benchmark.cpp` keeps its own `matrix_sizes` list in `main`, so edit that file
 too if you use the all-in-one program.
-
-The defaults are expensive: 4096x4096 sequential runs dominate the runtime, and
-every size is repeated 10 times (plus the OpenMP thread sweep). For a quick
-check, reduce `MATRIX_SIZES` and `READINGS_PER_SIZE` before building.
 
 ## Troubleshooting
 
@@ -148,8 +192,12 @@ check, reduce `MATRIX_SIZES` and `READINGS_PER_SIZE` before building.
   The executable was built without an architecture flag, or the driver is older
   than the toolkit. Rebuild with `build.bat` (it uses `-arch=native`), or set
   `CUDA_ARCH` to the GPU's compute capability.
-- **`Missing results/sequential_results.csv`** (or a similar message)
-  Run `sequential.exe`, `openmp.exe` and `cuda.exe` before `compare.exe`.
+- **`ERROR: .../sequential_averages.csv not found`**
+  Run `sequential.exe` with the same folder before `openmp.exe`, or use
+  `run_all.bat`.
+- **`ERROR: ... not found` from `compare.exe`**
+  Run `sequential.exe`, `openmp.exe` and `cuda.exe` with the same folder before
+  `compare.exe` (or use `run_all.bat`).
 - **Charts are not generated / `matplotlib` error**
-  Install it with `python -m pip install matplotlib`, then rerun `compare` or
-  `python plot_benchmark.py results`.
+  Install it with `python -m pip install matplotlib`, then rerun the program or
+  `python plot_benchmark.py <mode> <folder>`.
