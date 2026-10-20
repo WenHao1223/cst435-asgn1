@@ -14,18 +14,18 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 TIME_SERIES = [
-    ("Sequential_CPU_ms", "Sequential (CPU)", "#FF7F0E", "o", "-"),
-    ("Parallel_CPU_ms", "Parallel (OpenMP)", "#1E90FF", "s", "--"),
-    ("Parallel_GPU_ms", "Parallel (CUDA)", "#00C853", "^", "-."),
+    ("Sequential_CPU_ms", "Sequential (CPU)", "#000000", "o", "-"),
+    ("Parallel_CPU_ms", "Parallel (OpenMP)", "#FF7F0E", "s", "--"),
+    ("Parallel_GPU_ms", "Parallel (CUDA)", "#1E90FF", "^", "-."),
 ]
 
 SPEEDUP_VS_SEQUENTIAL_SERIES = [
-    ("Speedup_CPU_vs_Seq", "Parallel CPU (OpenMP) Speedup", "#1E90FF", "s", "-"),
-    ("Speedup_GPU_vs_Seq", "Parallel GPU (CUDA) Speedup", "#00C853", "^", "-"),
+    ("Speedup_CPU_vs_Seq", "Parallel CPU (OpenMP) Speedup", "#E53935", "s", "-"),
+    ("Speedup_GPU_vs_Seq", "Parallel GPU (CUDA) Speedup", "#1E90FF", "^", "-"),
 ]
 
 GPU_VS_CPU_SERIES = [
-    ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#FF7F0E", "D", "-"),
+    ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#1E90FF", "D", "-"),
 ]
 
 
