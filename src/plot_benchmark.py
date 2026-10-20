@@ -14,18 +14,18 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
 
 TIME_SERIES = [
-    ("Sequential_CPU_ms", "Sequential (CPU)", "#4d4d4d", "o"),
-    ("Parallel_CPU_ms", "Parallel (OpenMP)", "#1f77b4", "s"),
-    ("Parallel_GPU_ms", "Parallel (CUDA)", "#2ca02c", "^"),
+    ("Sequential_CPU_ms", "Sequential (CPU)", "#FF7F0E", "o", "-"),
+    ("Parallel_CPU_ms", "Parallel (OpenMP)", "#1E90FF", "s", "--"),
+    ("Parallel_GPU_ms", "Parallel (CUDA)", "#00C853", "^", "-."),
 ]
 
 SPEEDUP_VS_SEQUENTIAL_SERIES = [
-    ("Speedup_CPU_vs_Seq", "Parallel CPU (OpenMP) Speedup", "#1f77b4", "s"),
-    ("Speedup_GPU_vs_Seq", "Parallel GPU (CUDA) Speedup", "#2ca02c", "^"),
+    ("Speedup_CPU_vs_Seq", "Parallel CPU (OpenMP) Speedup", "#1E90FF", "s", "-"),
+    ("Speedup_GPU_vs_Seq", "Parallel GPU (CUDA) Speedup", "#00C853", "^", "-"),
 ]
 
 GPU_VS_CPU_SERIES = [
-    ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#ff7f0e", "D"),
+    ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#FF7F0E", "D", "-"),
 ]
 
 
@@ -71,12 +71,13 @@ def plot_execution_time(output_dir, averages, readings):
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
-    for name, label, color, marker in TIME_SERIES:
+    for name, label, color, marker, linestyle in TIME_SERIES:
         ax.plot(
             sizes,
             column(averages, name),
             color=color,
             marker=marker,
+            linestyle=linestyle,
             linewidth=2,
             label=label,
         )
@@ -113,12 +114,13 @@ def plot_speedup(output_dir, averages, title, filename, series):
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
-    for name, label, color, marker in series:
+    for name, label, color, marker, linestyle in series:
         ax.plot(
             sizes,
             column(averages, name),
             color=color,
             marker=marker,
+            linestyle=linestyle,
             linewidth=2,
             label=label,
         )
@@ -126,6 +128,35 @@ def plot_speedup(output_dir, averages, title, filename, series):
     ax.axhline(1.0, color="black", linestyle=":", linewidth=1, label="No speedup")
     configure_axes(ax, sizes, title, "Speedup (x)")
     ax.set_ylim(bottom=0)
+    ax.legend()
+    return save_figure(figure, output_dir, filename)
+
+
+def plot_speedup_bars(output_dir, averages, title, filename, series):
+    """Plot speedup per matrix size as grouped bars."""
+    sizes = matrix_sizes(averages)
+    positions = list(range(len(sizes)))
+    bar_width = 0.8 / len(series)
+    figure, ax = plt.subplots(figsize=(9, 5.5))
+
+    for index, (name, label, color, _, _) in enumerate(series):
+        offset = (index - (len(series) - 1) / 2) * bar_width
+        bars = ax.bar(
+            [position + offset for position in positions],
+            column(averages, name),
+            width=bar_width,
+            color=color,
+            label=label,
+        )
+        ax.bar_label(bars, fmt="%.1f", padding=2, fontsize=9)
+
+    ax.set_xticks(positions)
+    ax.set_xticklabels([f"{size}x{size}" for size in sizes])
+    ax.set_xlabel("Matrix size (N x N)")
+    ax.set_ylabel("Speedup (x)")
+    ax.set_title(title)
+    ax.grid(True, axis="y", linestyle="--", alpha=0.4)
+    ax.set_axisbelow(True)
     ax.legend()
     return save_figure(figure, output_dir, filename)
 
@@ -144,7 +175,7 @@ def main():
 
     paths = [
         plot_execution_time(results_dir, averages, readings),
-        plot_speedup(
+        plot_speedup_bars(
             results_dir,
             averages,
             "Speedup Relative to Sequential CPU",
