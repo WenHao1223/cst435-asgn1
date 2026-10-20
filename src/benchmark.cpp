@@ -56,7 +56,7 @@ void sequentialMatrixMultiply(const std::vector<float> &A, const std::vector<flo
 
 void openmpMatrixMultiply(const std::vector<float> &A, const std::vector<float> &B, std::vector<float> &C, int size)
 {
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for
     for (int row = 0; row < size; ++row)
     {
         for (int col = 0; col < size; ++col)

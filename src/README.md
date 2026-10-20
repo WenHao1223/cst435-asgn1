@@ -25,8 +25,8 @@ OpenMP parallel efficiency.
 | `plot_benchmark.py` | Chart generation (called by `compare` and `benchmark`). |
 | `build.bat` | Builds every program, or a single source file. |
 
-The split programs (`2`-`5`) are meant to be run in order. `benchmark` is the
-self-contained alternative and does not need the others.
+The split programs (`sequential` to `compare`) are meant to be run in order.
+`benchmark` is the self-contained alternative and does not need the others.
 
 ## Build
 
@@ -153,6 +153,3 @@ check, reduce `MATRIX_SIZES` and `READINGS_PER_SIZE` before building.
 - **Charts are not generated / `matplotlib` error**
   Install it with `python -m pip install matplotlib`, then rerun `compare` or
   `python plot_benchmark.py results`.
-- **`warning C4849: OpenMP 'collapse' clause ignored`**
-  MSVC supports OpenMP 2.0 and ignores `collapse(2)`. The parallel loop still
-  runs correctly; the warning is harmless.

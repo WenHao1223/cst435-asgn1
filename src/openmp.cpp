@@ -2,9 +2,9 @@
 // Build: g++ -O2 -fopenmp -std=c++17 openmp.cpp -o openmp
 // Output: results/openmp_results.csv  (Matrix_Size,Threads,Run,Parallel_CPU_ms)
 //
-// Thread-level parallelism: collapse(2) merges the row and col loops into one
-// N*N iteration space that OpenMP splits across threads. Each (row,col) writes a
-// different C element, so no synchronisation is needed.
+// Thread-level parallelism: the outer row loop is split across threads. Each
+// thread writes disjoint rows of C, so no synchronisation is needed. The row
+// loop is used on its own because MSVC's OpenMP 2.0 ignores collapse(2).
 // Overheads to discuss: thread creation/scheduling, memory-bandwidth limits,
 // cache effects (B is read column-wise), and fewer cores than threads.
 #include "common.h"
@@ -15,7 +15,7 @@
 void openmpMatrixMultiply(const std::vector<float> &A, const std::vector<float> &B,
                           std::vector<float> &C, int size)
 {
-#pragma omp parallel for collapse(2)
+#pragma omp parallel for
     for (int row = 0; row < size; ++row)
         for (int col = 0; col < size; ++col)
         {
