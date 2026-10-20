@@ -2,16 +2,13 @@
 setlocal
 cd /d "%~dp0"
 
-rem Source file can be passed as the first argument (default: benchmark.cpp).
-set "SOURCE=%~1"
-if "%SOURCE%"=="" set "SOURCE=benchmark.cpp"
-set "OUTPUT=%~n1"
-if "%OUTPUT%"=="" set "OUTPUT=benchmark"
-
-if not exist "%SOURCE%" (
-    echo ERROR: Source file "%SOURCE%" not found.
-    exit /b 1
-)
+rem Build every program when no argument is given:
+rem   build.bat              -> 0-benchmark.exe, 2-sequential.exe, 3-openmp.exe,
+rem                             4-cuda.exe, 5-compare.exe
+rem Build a single source:
+rem   build.bat 4-cuda.cu    -> 4-cuda.exe
+set "SOURCES=0-benchmark.cpp 2-sequential.cpp 3-openmp.cpp 4-cuda.cu 5-compare.cpp"
+if not "%~1"=="" set "SOURCES=%~1"
 
 rem CUDA_PATH is set machine-wide by the toolkit installer, but an already-open
 rem terminal may not have picked it up yet, so fall back to the registry.
@@ -44,11 +41,22 @@ rem PTX that older drivers reject with "unsupported toolchain"; targeting the
 rem local architecture avoids that. Override with: set CUDA_ARCH=sm_89
 if not defined CUDA_ARCH set "CUDA_ARCH=native"
 
-"%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 -std=c++17 -arch=%CUDA_ARCH% "%SOURCE%" -o "%OUTPUT%.exe" -Xcompiler "/O2 /openmp"
-if errorlevel 1 (
+set "FAILED=0"
+for %%F in (%SOURCES%) do (
+    if not exist "%%F" (
+        echo ERROR: Source file "%%F" not found.
+        set "FAILED=1"
+    ) else (
+        echo Building %%F ...
+        "%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 -std=c++17 -arch=%CUDA_ARCH% "%%F" -o "%%~nF.exe" -Xcompiler "/O2 /openmp"
+        if errorlevel 1 set "FAILED=1"
+    )
+)
+
+if "%FAILED%"=="1" (
     echo Build FAILED.
     exit /b 1
 )
 
-echo Build succeeded: %~dp0%OUTPUT%.exe
+echo Build succeeded: %~dp0
 endlocal
