@@ -2,6 +2,17 @@
 setlocal
 cd /d "%~dp0"
 
+rem Source file can be passed as the first argument (default: benchmark.cpp).
+set "SOURCE=%~1"
+if "%SOURCE%"=="" set "SOURCE=benchmark.cpp"
+set "OUTPUT=%~n1"
+if "%OUTPUT%"=="" set "OUTPUT=benchmark"
+
+if not exist "%SOURCE%" (
+    echo ERROR: Source file "%SOURCE%" not found.
+    exit /b 1
+)
+
 rem CUDA_PATH is set machine-wide by the toolkit installer, but an already-open
 rem terminal may not have picked it up yet, so fall back to the registry.
 if not defined CUDA_PATH (
@@ -28,11 +39,11 @@ if not defined VSPATH (
 call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 exit /b 1
 
-"%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 benchmark.cpp -o benchmark.exe -Xcompiler "/O2 /openmp"
+"%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 -std=c++17 "%SOURCE%" -o "%OUTPUT%.exe" -Xcompiler "/O2 /openmp"
 if errorlevel 1 (
     echo Build FAILED.
     exit /b 1
 )
 
-echo Build succeeded: %~dp0benchmark.exe
+echo Build succeeded: %~dp0%OUTPUT%.exe
 endlocal
