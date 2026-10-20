@@ -90,9 +90,9 @@ __global__ void matrixMulGpu(const float *A, const float *B, float *C, int size)
 // Benchmark Data & Output Helpers
 // =================================================================
 const int READINGS_PER_SIZE = 3;
-const std::string OUTPUT_DIR = "results";
-const std::string ALL_READINGS_CSV = OUTPUT_DIR + "/all_readings.csv";
-const std::string AVERAGES_CSV = OUTPUT_DIR + "/averages.csv";
+const std::string OUTPUT_ROOT = "results";
+const std::string ALL_READINGS_FILENAME = "all_readings.csv";
+const std::string AVERAGES_FILENAME = "averages.csv";
 const std::string PLOT_SCRIPT = "plot_benchmark.py";
 const std::string PYTHON_COMMAND = "python";
 
@@ -122,12 +122,36 @@ double timeMs(Func &&fn)
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
-void writeAllReadingsCsv(const std::vector<Reading> &readings)
+std::string createRunDirectory()
 {
-    std::ofstream file(ALL_READINGS_CSV);
+    std::time_t now = std::time(nullptr);
+    std::tm local_time{};
+#ifdef _WIN32
+    localtime_s(&local_time, &now);
+#else
+    localtime_r(&now, &local_time);
+#endif
+
+    char timestamp[32];
+    std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%d_%H-%M-%S", &local_time);
+
+    std::filesystem::path run_dir = std::filesystem::path(OUTPUT_ROOT) / timestamp;
+    for (int suffix = 1; std::filesystem::exists(run_dir); ++suffix)
+    {
+        run_dir = std::filesystem::path(OUTPUT_ROOT) / (std::string(timestamp) + "_" + std::to_string(suffix));
+    }
+
+    std::filesystem::create_directories(run_dir);
+    return run_dir.string();
+}
+
+void writeAllReadingsCsv(const std::vector<Reading> &readings, const std::string &output_dir)
+{
+    std::filesystem::path csv_path = std::filesystem::path(output_dir) / ALL_READINGS_FILENAME;
+    std::ofstream file(csv_path);
     if (!file)
     {
-        std::cerr << "Error: could not open " << ALL_READINGS_CSV << " for writing." << std::endl;
+        std::cerr << "Error: could not open " << csv_path.string() << " for writing." << std::endl;
         exit(EXIT_FAILURE);
     }
 
@@ -162,12 +186,13 @@ std::vector<AverageReading> averageReadings(const std::vector<Reading> &readings
     return averages;
 }
 
-void writeAveragesCsv(const std::vector<AverageReading> &averages)
+void writeAveragesCsv(const std::vector<AverageReading> &averages, const std::string &output_dir)
 {
-    std::ofstream file(AVERAGES_CSV);
+    std::filesystem::path csv_path = std::filesystem::path(output_dir) / AVERAGES_FILENAME;
+    std::ofstream file(csv_path);
     if (!file)
     {
-        std::cerr << "Error: could not open " << AVERAGES_CSV << " for writing." << std::endl;
+        std::cerr << "Error: could not open " << csv_path.string() << " for writing." << std::endl;
         exit(EXIT_FAILURE);
     }
 
@@ -189,7 +214,7 @@ void writeAveragesCsv(const std::vector<AverageReading> &averages)
     }
 }
 
-bool runPlotScript(const char *executable)
+bool runPlotScript(const char *executable, const std::string &output_dir)
 {
     std::vector<std::string> candidates = {PLOT_SCRIPT};
 
@@ -206,14 +231,14 @@ bool runPlotScript(const char *executable)
             continue;
         }
 
-        std::string command = PYTHON_COMMAND + " \"" + script + "\" \"" + OUTPUT_DIR + "\"";
+        std::string command = PYTHON_COMMAND + " \"" + script + "\" \"" + output_dir + "\"";
         if (std::system(command.c_str()) != 0)
         {
             std::cerr << "Warning: graph export failed "
                       << "(is Python with matplotlib installed?)." << std::endl;
             return false;
         }
-        std::cout << "Graphs written to " << OUTPUT_DIR << std::endl;
+        std::cout << "Graphs written to " << output_dir << std::endl;
         return true;
     }
 
@@ -239,7 +264,8 @@ int main(int argc, char *argv[])
     };
     std::vector<Reading> readings;
 
-    std::filesystem::create_directories(OUTPUT_DIR);
+    std::string output_dir = createRunDirectory();
+    std::cout << "Results directory: " << output_dir << std::endl;
 
     // Print the header for our CSV data table
     std::cout << "Matrix_Size,Run,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
@@ -305,10 +331,10 @@ int main(int argc, char *argv[])
         CUDA_CHECK(cudaFree(d_C));
     }
 
-    writeAllReadingsCsv(readings);
+    writeAllReadingsCsv(readings, output_dir);
 
     std::vector<AverageReading> averages = averageReadings(readings);
-    writeAveragesCsv(averages);
+    writeAveragesCsv(averages, output_dir);
 
     std::cout << "\nAverage of " << READINGS_PER_SIZE << " readings per matrix size:" << std::endl;
     std::cout << "Matrix_Size,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
@@ -324,10 +350,12 @@ int main(int argc, char *argv[])
                   << average.sequentialMs / average.cudaMs << "x" << std::endl;
     }
 
-    std::cout << "\nRaw readings written to " << ALL_READINGS_CSV << std::endl;
-    std::cout << "Average readings written to " << AVERAGES_CSV << std::endl;
+    std::cout << "\nRaw readings written to "
+              << (std::filesystem::path(output_dir) / ALL_READINGS_FILENAME).string() << std::endl;
+    std::cout << "Average readings written to "
+              << (std::filesystem::path(output_dir) / AVERAGES_FILENAME).string() << std::endl;
 
-    runPlotScript(argc > 0 ? argv[0] : nullptr);
+    runPlotScript(argc > 0 ? argv[0] : nullptr, output_dir);
 
     std::cout << "Benchmark complete." << std::endl;
 
