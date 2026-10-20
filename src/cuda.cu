@@ -1,5 +1,5 @@
 // cuda.cu - parallel GPU (CUDA) matrix multiplication
-// Build: build.bat 4-cuda.cu
+// Build: build.bat cuda.cu
 // Output: results/cuda_results.csv  (Matrix_Size,Run,Kernel_ms,E2E_ms)
 //
 // One CUDA thread computes one C[row][col] element and walks the full k range.

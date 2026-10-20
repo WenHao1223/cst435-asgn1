@@ -16,16 +16,16 @@ OpenMP parallel efficiency.
 
 | File | Purpose |
 | --- | --- |
-| `0-benchmark.cpp` | Standalone all-in-one benchmark. Runs all three implementations in one process. |
+| `benchmark.cpp` | Standalone all-in-one benchmark. Runs all three implementations in one process. |
 | `common.h` | Shared sizes, seed, timing helpers and the sequential reference. |
-| `2-sequential.cpp` | Sequential CPU baseline, writes `sequential_results.csv`. |
-| `3-openmp.cpp` | OpenMP implementation with a thread sweep, writes `openmp_results.csv`. |
-| `4-cuda.cu` | CUDA kernel, writes `cuda_results.csv` (kernel and end-to-end times). |
-| `5-compare.cpp` | Merges the three CSVs, computes speedup/efficiency and draws the charts. |
-| `plot_benchmark.py` | Chart generation (called by `5-compare` and `0-benchmark`). |
+| `sequential.cpp` | Sequential CPU baseline, writes `sequential_results.csv`. |
+| `openmp.cpp` | OpenMP implementation with a thread sweep, writes `openmp_results.csv`. |
+| `cuda.cu` | CUDA kernel, writes `cuda_results.csv` (kernel and end-to-end times). |
+| `compare.cpp` | Merges the three CSVs, computes speedup/efficiency and draws the charts. |
+| `plot_benchmark.py` | Chart generation (called by `compare` and `benchmark`). |
 | `build.bat` | Builds every program, or a single source file. |
 
-The split programs (`2`-`5`) are meant to be run in order. `0-benchmark` is the
+The split programs (`2`-`5`) are meant to be run in order. `benchmark` is the
 self-contained alternative and does not need the others.
 
 ## Build
@@ -40,13 +40,13 @@ build.bat
 This produces:
 
 ```
-0-benchmark.exe  2-sequential.exe  3-openmp.exe  4-cuda.exe  5-compare.exe
+benchmark.exe  sequential.exe  openmp.exe  cuda.exe  compare.exe
 ```
 
 To build only one source:
 
 ```bat
-build.bat 4-cuda.cu
+build.bat cuda.cu
 ```
 
 The script compiles with `-arch=native` so the executable contains code for the
@@ -63,24 +63,24 @@ build.bat
 
 ```bat
 cd src
-.\2-sequential.exe
-.\3-openmp.exe
-.\4-cuda.exe
-.\5-compare.exe
+.\sequential.exe
+.\openmp.exe
+.\cuda.exe
+.\compare.exe
 ```
 
-Run the programs in that order: `5-compare` reads the CSV files produced by the
+Run the programs in that order: `compare` reads the CSV files produced by the
 first three and fails with a "Missing results/...csv" message if any are absent.
 
 Each program prints a progress table and writes its CSV to `results/` in the
 current directory. Run everything from `src` so the output lands in
-`src/results/` and `5-compare` can find `plot_benchmark.py`.
+`src/results/` and `compare` can find `plot_benchmark.py`.
 
 ### Option B - all-in-one benchmark
 
 ```bat
 cd src
-.\0-benchmark.exe
+.\benchmark.exe
 ```
 
 This runs sequential, OpenMP (including the thread sweep) and CUDA in one go and
@@ -106,7 +106,7 @@ Charts written to the same folder:
 - `gpu_speedup_over_parallel_cpu.png` - CUDA speedup over the parallel CPU.
 - `openmp_strong_scaling.png` - OpenMP speedup and efficiency vs thread count.
 
-`0-benchmark` writes the same charts plus its raw-reading CSVs
+`benchmark` writes the same charts plus its raw-reading CSVs
 (`all_readings.csv`, `openmp_scaling_all_readings.csv`) into its timestamp folder.
 
 To redraw the charts for an existing results folder:
@@ -135,7 +135,7 @@ const std::vector<int> MATRIX_SIZES = {128, 256, 512, 1024, 2048, 3072, 4096};
 const unsigned SEED = 42;
 ```
 
-`0-benchmark.cpp` keeps its own `matrix_sizes` list in `main`, so edit that file
+`benchmark.cpp` keeps its own `matrix_sizes` list in `main`, so edit that file
 too if you use the all-in-one program.
 
 The defaults are expensive: 4096x4096 sequential runs dominate the runtime, and
@@ -149,9 +149,9 @@ check, reduce `MATRIX_SIZES` and `READINGS_PER_SIZE` before building.
   than the toolkit. Rebuild with `build.bat` (it uses `-arch=native`), or set
   `CUDA_ARCH` to the GPU's compute capability.
 - **`Missing results/sequential_results.csv`** (or a similar message)
-  Run `2-sequential.exe`, `3-openmp.exe` and `4-cuda.exe` before `5-compare.exe`.
+  Run `sequential.exe`, `openmp.exe` and `cuda.exe` before `compare.exe`.
 - **Charts are not generated / `matplotlib` error**
-  Install it with `python -m pip install matplotlib`, then rerun `5-compare` or
+  Install it with `python -m pip install matplotlib`, then rerun `compare` or
   `python plot_benchmark.py results`.
 - **`warning C4849: OpenMP 'collapse' clause ignored`**
   MSVC supports OpenMP 2.0 and ignores `collapse(2)`. The parallel loop still

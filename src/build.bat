@@ -3,11 +3,11 @@ setlocal
 cd /d "%~dp0"
 
 rem Build every program when no argument is given:
-rem   build.bat              -> 0-benchmark.exe, 2-sequential.exe, 3-openmp.exe,
-rem                             4-cuda.exe, 5-compare.exe
+rem   build.bat              -> benchmark.exe, sequential.exe, openmp.exe,
+rem                             cuda.exe, compare.exe
 rem Build a single source:
-rem   build.bat 4-cuda.cu    -> 4-cuda.exe
-set "SOURCES=0-benchmark.cpp 2-sequential.cpp 3-openmp.cpp 4-cuda.cu 5-compare.cpp"
+rem   build.bat cuda.cu    -> cuda.exe
+set "SOURCES=benchmark.cpp sequential.cpp openmp.cpp cuda.cu compare.cpp"
 if not "%~1"=="" set "SOURCES=%~1"
 
 rem CUDA_PATH is set machine-wide by the toolkit installer, but an already-open
