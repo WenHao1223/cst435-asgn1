@@ -6,6 +6,7 @@
 #include <chrono>
 #include <random>
 #include <cmath>
+#include <algorithm>
 #include <filesystem>
 #include <iostream>
 
