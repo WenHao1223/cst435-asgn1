@@ -92,11 +92,20 @@ __global__ void matrixMulGpu(const float *A, const float *B, float *C, int size)
 const int READINGS_PER_SIZE = 3;
 const std::string OUTPUT_DIR = "results";
 const std::string ALL_READINGS_CSV = OUTPUT_DIR + "/all_readings.csv";
+const std::string AVERAGES_CSV = OUTPUT_DIR + "/averages.csv";
 
 struct Reading
 {
     int matrixSize;
     int run; // 1-based repetition index
+    double sequentialMs;
+    double openmpMs;
+    double cudaMs;
+};
+
+struct AverageReading
+{
+    int matrixSize;
     double sequentialMs;
     double openmpMs;
     double cudaMs;
@@ -128,6 +137,53 @@ void writeAllReadingsCsv(const std::vector<Reading> &readings)
              << std::fixed << std::setprecision(4) << reading.sequentialMs << ","
              << reading.openmpMs << ","
              << reading.cudaMs << std::endl;
+    }
+}
+
+std::vector<AverageReading> averageReadings(const std::vector<Reading> &readings)
+{
+    std::vector<AverageReading> averages;
+    for (size_t i = 0; i + READINGS_PER_SIZE <= readings.size(); i += READINGS_PER_SIZE)
+    {
+        AverageReading average{readings[i].matrixSize, 0.0, 0.0, 0.0};
+        for (int run = 0; run < READINGS_PER_SIZE; ++run)
+        {
+            average.sequentialMs += readings[i + run].sequentialMs;
+            average.openmpMs += readings[i + run].openmpMs;
+            average.cudaMs += readings[i + run].cudaMs;
+        }
+        average.sequentialMs /= READINGS_PER_SIZE;
+        average.openmpMs /= READINGS_PER_SIZE;
+        average.cudaMs /= READINGS_PER_SIZE;
+        averages.push_back(average);
+    }
+    return averages;
+}
+
+void writeAveragesCsv(const std::vector<AverageReading> &averages)
+{
+    std::ofstream file(AVERAGES_CSV);
+    if (!file)
+    {
+        std::cerr << "Error: could not open " << AVERAGES_CSV << " for writing." << std::endl;
+        exit(EXIT_FAILURE);
+    }
+
+    file << "Matrix_Size,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
+         << "Speedup_CPU_vs_Seq,Speedup_GPU_vs_CPU,Speedup_GPU_vs_Seq" << std::endl;
+    for (const AverageReading &average : averages)
+    {
+        double speedup_cpu_vs_seq = average.sequentialMs / average.openmpMs;
+        double speedup_gpu_vs_cpu = average.openmpMs / average.cudaMs;
+        double speedup_gpu_vs_seq = average.sequentialMs / average.cudaMs;
+
+        file << average.matrixSize << ","
+             << std::fixed << std::setprecision(4) << average.sequentialMs << ","
+             << average.openmpMs << ","
+             << average.cudaMs << ","
+             << std::setprecision(2) << speedup_cpu_vs_seq << ","
+             << speedup_gpu_vs_cpu << ","
+             << speedup_gpu_vs_seq << std::endl;
     }
 }
 
@@ -209,7 +265,25 @@ int main()
 
     writeAllReadingsCsv(readings);
 
+    std::vector<AverageReading> averages = averageReadings(readings);
+    writeAveragesCsv(averages);
+
+    std::cout << "\nAverage of " << READINGS_PER_SIZE << " readings per matrix size:" << std::endl;
+    std::cout << "Matrix_Size,Sequential_CPU_ms,Parallel_CPU_ms,Parallel_GPU_ms,"
+              << "Speedup_CPU_vs_Seq,Speedup_GPU_vs_CPU,Speedup_GPU_vs_Seq" << std::endl;
+    for (const AverageReading &average : averages)
+    {
+        std::cout << average.matrixSize << "x" << average.matrixSize << ","
+                  << std::fixed << std::setprecision(4) << average.sequentialMs << ","
+                  << average.openmpMs << ","
+                  << average.cudaMs << ","
+                  << std::setprecision(2) << average.sequentialMs / average.openmpMs << "x,"
+                  << average.openmpMs / average.cudaMs << "x,"
+                  << average.sequentialMs / average.cudaMs << "x" << std::endl;
+    }
+
     std::cout << "\nRaw readings written to " << ALL_READINGS_CSV << std::endl;
+    std::cout << "Average readings written to " << AVERAGES_CSV << std::endl;
     std::cout << "Benchmark complete." << std::endl;
 
     return 0;
