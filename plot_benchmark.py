@@ -30,19 +30,23 @@ GPU_VS_CPU_SERIES = [
 
 
 def read_csv(path):
+    """Read a CSV file and return a list of dictionaries, one per row."""
     with open(path, newline="") as handle:
         return list(csv.DictReader(handle))
 
 
 def column(rows, name):
+    """Return a list of values from a specific column in the CSV rows."""
     return [float(row[name]) for row in rows]
 
 
 def matrix_sizes(rows):
+    """Return a list of matrix sizes from the CSV rows."""
     return [int(row["Matrix_Size"]) for row in rows]
 
 
 def configure_axes(ax, sizes, title, ylabel):
+    """Configure the axes of a matplotlib plot."""
     ax.set_xscale("log", base=2)
     ax.set_xticks(sizes)
     ax.set_xticklabels([f"{size}x{size}" for size in sizes])
@@ -54,6 +58,7 @@ def configure_axes(ax, sizes, title, ylabel):
 
 
 def save_figure(figure, output_dir, filename):
+    """Save a matplotlib figure to a file."""
     path = os.path.join(output_dir, filename)
     figure.tight_layout()
     figure.savefig(path, dpi=150)
@@ -62,6 +67,7 @@ def save_figure(figure, output_dir, filename):
 
 
 def plot_execution_time(output_dir, averages, readings):
+    """Plot execution time for each implementation."""
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
@@ -103,6 +109,7 @@ def plot_execution_time(output_dir, averages, readings):
 
 
 def plot_speedup(output_dir, averages, title, filename, series):
+    """Plot speedup for each implementation."""
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
@@ -124,6 +131,7 @@ def plot_speedup(output_dir, averages, title, filename, series):
 
 
 def main():
+    """Main function to read CSV files and generate plots."""
     results_dir = sys.argv[1] if len(sys.argv) > 1 else "results"
 
     averages_path = os.path.join(results_dir, "averages.csv")
