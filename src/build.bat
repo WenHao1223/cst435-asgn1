@@ -39,7 +39,12 @@ if not defined VSPATH (
 call "%VSPATH%\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 exit /b 1
 
-"%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 -std=c++17 "%SOURCE%" -o "%OUTPUT%.exe" -Xcompiler "/O2 /openmp"
+rem Build for the local GPU (SASS) instead of generic PTX. Newer toolkits emit
+rem PTX that older drivers reject with "unsupported toolchain"; targeting the
+rem local architecture avoids that. Override with: set CUDA_ARCH=sm_89
+if not defined CUDA_ARCH set "CUDA_ARCH=native"
+
+"%CUDA_PATH%\bin\nvcc.exe" -x cu -O3 -std=c++17 -arch=%CUDA_ARCH% "%SOURCE%" -o "%OUTPUT%.exe" -Xcompiler "/O2 /openmp"
 if errorlevel 1 (
     echo Build FAILED.
     exit /b 1
