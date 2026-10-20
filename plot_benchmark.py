@@ -1,6 +1,6 @@
 """Render comparison charts from the benchmark CSV files.
 
-Usage: python plot_benchmark.py [results_dir]
+Usage: python plot_benchmark.py <run_dir>
 """
 
 import csv
@@ -19,10 +19,13 @@ TIME_SERIES = [
     ("Parallel_GPU_ms", "Parallel (CUDA)", "#2ca02c", "^"),
 ]
 
-SPEEDUP_SERIES = [
-    ("Speedup_CPU_vs_Seq", "OpenMP vs Sequential", "#1f77b4", "s"),
-    ("Speedup_GPU_vs_CPU", "CUDA vs OpenMP", "#ff7f0e", "D"),
-    ("Speedup_GPU_vs_Seq", "CUDA vs Sequential", "#2ca02c", "^"),
+SPEEDUP_VS_SEQUENTIAL_SERIES = [
+    ("Speedup_CPU_vs_Seq", "Parallel CPU (OpenMP) Speedup", "#1f77b4", "s"),
+    ("Speedup_GPU_vs_Seq", "Parallel GPU (CUDA) Speedup", "#2ca02c", "^"),
+]
+
+GPU_VS_CPU_SERIES = [
+    ("Speedup_GPU_vs_CPU", "Parallel GPU (CUDA) Speedup", "#ff7f0e", "D"),
 ]
 
 
@@ -42,7 +45,7 @@ def matrix_sizes(rows):
 def configure_axes(ax, sizes, title, ylabel):
     ax.set_xscale("log", base=2)
     ax.set_xticks(sizes)
-    ax.set_xticklabels([str(size) for size in sizes])
+    ax.set_xticklabels([f"{size}x{size}" for size in sizes])
     ax.xaxis.set_minor_formatter(ticker.NullFormatter())
     ax.set_xlabel("Matrix size (N x N)")
     ax.set_ylabel(ylabel)
@@ -91,7 +94,7 @@ def plot_execution_time(output_dir, averages, readings):
     configure_axes(
         ax,
         sizes,
-        "Execution Time Comparison",
+        "Execution Time vs. Matrix Size",
         "Execution time (ms, log scale)",
     )
     ax.set_yscale("log")
@@ -99,11 +102,11 @@ def plot_execution_time(output_dir, averages, readings):
     return save_figure(figure, output_dir, "execution_time_comparison.png")
 
 
-def plot_speedups(output_dir, averages):
+def plot_speedup(output_dir, averages, title, filename, series):
     sizes = matrix_sizes(averages)
     figure, ax = plt.subplots(figsize=(9, 5.5))
 
-    for name, label, color, marker in SPEEDUP_SERIES:
+    for name, label, color, marker in series:
         ax.plot(
             sizes,
             column(averages, name),
@@ -114,9 +117,10 @@ def plot_speedups(output_dir, averages):
         )
 
     ax.axhline(1.0, color="black", linestyle=":", linewidth=1, label="No speedup")
-    configure_axes(ax, sizes, "Speedup Comparison", "Speedup (x)")
+    configure_axes(ax, sizes, title, "Speedup (x)")
+    ax.set_ylim(bottom=0)
     ax.legend()
-    return save_figure(figure, output_dir, "speedup_comparison.png")
+    return save_figure(figure, output_dir, filename)
 
 
 def main():
@@ -132,7 +136,20 @@ def main():
 
     paths = [
         plot_execution_time(results_dir, averages, readings),
-        plot_speedups(results_dir, averages),
+        plot_speedup(
+            results_dir,
+            averages,
+            "Speedup Relative to Sequential CPU",
+            "speedup_vs_sequential_cpu.png",
+            SPEEDUP_VS_SEQUENTIAL_SERIES,
+        ),
+        plot_speedup(
+            results_dir,
+            averages,
+            "GPU Speedup Over Parallel CPU",
+            "gpu_speedup_over_parallel_cpu.png",
+            GPU_VS_CPU_SERIES,
+        ),
     ]
 
     for path in paths:
