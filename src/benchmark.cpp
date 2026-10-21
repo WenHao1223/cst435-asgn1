@@ -97,7 +97,11 @@ const std::string AVERAGES_FILENAME = "averages.csv";
 const std::string SCALING_ALL_READINGS_FILENAME = "openmp_scaling_all_readings.csv";
 const std::string SCALING_AVERAGES_FILENAME = "openmp_scaling_averages.csv";
 const std::string PLOT_SCRIPT = "plot_benchmark.py";
+#ifdef _WIN32
 const std::string PYTHON_COMMAND = "python";
+#else
+const std::string PYTHON_COMMAND = "python3";
+#endif
 
 struct Reading
 {

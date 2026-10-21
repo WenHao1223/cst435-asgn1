@@ -86,6 +86,13 @@ inline std::string resolveRunDirectory(int argc, char *argv[])
     return createRunDirectory();
 }
 
+// Windows usually ships "python"; Linux/macOS usually only "python3".
+#ifdef _WIN32
+const char *const PYTHON_CMD = "python";
+#else
+const char *const PYTHON_CMD = "python3";
+#endif
+
 // Runs plot_benchmark.py from the current directory or next to the executable.
 inline bool runPlotScript(const char *executable, const std::string &arguments)
 {
@@ -104,7 +111,7 @@ inline bool runPlotScript(const char *executable, const std::string &arguments)
             continue;
         }
 
-        std::string command = "python \"" + script + "\" " + arguments;
+        std::string command = std::string(PYTHON_CMD) + " \"" + script + "\" " + arguments;
         return std::system(command.c_str()) == 0;
     }
 
